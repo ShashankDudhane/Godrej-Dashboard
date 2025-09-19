@@ -1,13 +1,13 @@
 "use client"
-// sbp_e8d8e4544cf7e57836c653213b545f52b84412de
-// cli_THE-CHAMP\Rakesh@The-Champ_1758278465
+
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/lib/supabaseClient"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Loader } from "@/components/Loader"
+import { motion } from "framer-motion"
 
 export default function SignInPage() {
   const router = useRouter()
@@ -31,32 +31,63 @@ export default function SignInPage() {
   if (loading) return <Loader />
 
   return (
-    <div className="h-screen flex items-center justify-center">
-      <Card className="w-[350px] shadow-lg">
-        <CardHeader>
-          <CardTitle>Admin Sign In</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSignIn} className="space-y-4">
-            <Input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="Email"
-            />
-            <Input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Password"
-            />
-            {error && <p className="text-red-500 text-sm">{error}</p>}
-            <Button type="submit" className="w-full">
-              Sign In
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
+    <div className="h-screen w-full flex items-center justify-center bg-gradient-to-br from-blue-50 via-white to-blue-100 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900">
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6 }}
+        className="w-full max-w-md px-4"
+      >
+        <Card className="shadow-2xl border border-gray-200 dark:border-gray-700 rounded-2xl">
+          <CardHeader className="space-y-2 text-center">
+            <CardTitle className="text-2xl font-bold text-gray-900 dark:text-white">
+              Godrej Admin Portal
+            </CardTitle>
+            <CardDescription className="text-gray-600 dark:text-gray-400">
+              Sign in to access your dashboard
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleSignIn} className="space-y-5">
+              <div>
+                <Input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="Enter your email"
+                  required
+                  className="h-11 rounded-xl"
+                />
+              </div>
+              <div>
+                <Input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Enter your password"
+                  required
+                  className="h-11 rounded-xl"
+                />
+              </div>
+              {error && (
+                <p className="text-red-500 text-sm font-medium text-center">
+                  {error}
+                </p>
+              )}
+              <Button
+                type="submit"
+                className="w-full h-11 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-md"
+              >
+                Sign In
+              </Button>
+            </form>
+
+            <div className="mt-6 text-center text-sm text-gray-500 dark:text-gray-400">
+              © {new Date().getFullYear()} Godrej Emerald Waters
+            </div>
+          </CardContent>
+        </Card>
+      </motion.div>
     </div>
   )
 }
