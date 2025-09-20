@@ -18,6 +18,13 @@ import {
   Legend,
   CartesianGrid,
 } from "recharts"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter
+} from "@/components/ui/dialog"
 
 const towers = ["T1","T2","T3","T4","POD/NTA","UGWT","STP"]
 const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
@@ -42,6 +49,7 @@ export default function ManpowerPage() {
   const [editingWeek, setEditingWeek] = useState<number|null>(null)
   const [viewMode, setViewMode] = useState<"monthly"|"yearly">("monthly")
   const [loading, setLoading] = useState(false)
+  const [duplicateWeek, setDuplicateWeek] = useState<number|null>(null)
 
   const fetchData = async () => {
     setLoading(true)
@@ -111,19 +119,29 @@ export default function ManpowerPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    const currentTower = tower
+
+    if(!editingWeek){
+      const exists = planRows.some(r=>r.week===form.week) || actualRows.some(r=>r.week===form.week)
+      if(exists){
+        setDuplicateWeek(form.week)
+        return
+      }
+    }
+
     try {
       if(form.planned !== undefined){
         const { error } = await supabase.from("manpower_plan")
-          .upsert({ year, month, week: form.week, tower: form.tower, planned: form.planned }, { onConflict: "year,month,week,tower" })
+          .upsert({ year, month, week: form.week, tower: currentTower, planned: form.planned }, { onConflict: "year,month,week,tower" })
         if(error) throw error
       }
       if(form.actual !== undefined){
         const { error } = await supabase.from("manpower_actual")
-          .upsert({ year, month, week: form.week, tower: form.tower, actual: form.actual }, { onConflict: "year,month,week,tower" })
+          .upsert({ year, month, week: form.week, tower: currentTower, actual: form.actual }, { onConflict: "year,month,week,tower" })
         if(error) throw error
       }
       toast.success(editingWeek ? "Updated successfully" : "Saved successfully")
-      setForm({week:1, tower})
+      setForm({week:1, tower: currentTower})
       setEditingWeek(null)
       fetchData()
     } catch(err){
@@ -137,6 +155,7 @@ export default function ManpowerPage() {
     const act = actualRows.find(r=>r.week===week)
     setForm({week, tower, planned:plan?.planned, actual:act?.actual})
     setEditingWeek(week)
+    setDuplicateWeek(null)
   }
 
   const fmt = (v?: number|null) => v==null ? "0.00" : Number(v).toFixed(2)
@@ -158,6 +177,7 @@ export default function ManpowerPage() {
     <div className="p-6">
       <h1 className="text-2xl font-bold mb-6">Manpower Plan vs Actual (Tower-wise)</h1>
 
+      {/* Filters */}
       <div className="flex flex-wrap items-center mb-4 justify-between">
         <div className="flex gap-4 items-center">
           <div className="flex gap-2 items-center">
@@ -179,22 +199,62 @@ export default function ManpowerPage() {
         </div>
       </div>
 
+      {/* Monthly View */}
       {viewMode==="monthly" ? (
         <>
+          {/* Add / Edit Form */}
           <Card className="mb-6">
-            <CardHeader><CardTitle>{editingWeek ? `Edit Week ${editingWeek}` : 'Add / Update Week'}</CardTitle></CardHeader>
-            <CardContent>
-              <form onSubmit={handleSubmit} className="flex gap-4 flex-wrap items-end">
-                <Input type="number" min={1} max={5} value={form.week} onChange={e=>setForm(f=>({...f, week:Number(e.target.value)}))} className="w-24"/>
-                <select value={form.tower} onChange={e=>setForm(f=>({...f, tower:e.target.value}))} className="w-32">{towers.map(t=><option key={t} value={t}>{t}</option>)}</select>
-                <Input type="number" step="0.01" placeholder="Planned" value={form.planned??''} onChange={e=>setForm(f=>({...f, planned:Number(e.target.value)}))} className="w-36"/>
-                <Input type="number" step="0.01" placeholder="Actual" value={form.actual??''} onChange={e=>setForm(f=>({...f, actual:Number(e.target.value)}))} className="w-36"/>
-                <Button type="submit">{editingWeek ? 'Update' : 'Save'}</Button>
-                {editingWeek && <Button variant="outline" onClick={()=>{setEditingWeek(null); setForm({week:1, tower})}}>Cancel</Button>}
-              </form>
-            </CardContent>
-          </Card>
+  <CardHeader>
+    <CardTitle>{editingWeek ? `Edit Week ${editingWeek}` : 'Add / Update Week'}</CardTitle>
+  </CardHeader>
+  <CardContent>
+    <form onSubmit={handleSubmit} className="flex gap-4 flex-wrap items-end">
+      <div>
+        <label className="block text-sm font-medium mb-1">Week</label>
+        <Input
+          type="number"
+          min={1}
+          max={5}
+          value={form.week}
+          onChange={e => setForm(f => ({ ...f, week: Number(e.target.value) }))}
+          className="w-24"
+          disabled={!!editingWeek}
+        />
+      </div>
+      <div>
+        <label className="block text-sm font-medium mb-1">Planned</label>
+        <Input
+          type="number"
+          step="0.01"
+          value={form.planned ?? ''}
+          onChange={e => setForm(f => ({ ...f, planned: Number(e.target.value) }))}
+          className="w-36"
+        />
+      </div>
+      <div>
+        <label className="block text-sm font-medium mb-1">Actual</label>
+        <Input
+          type="number"
+          step="0.01"
+          value={form.actual ?? ''}
+          onChange={e => setForm(f => ({ ...f, actual: Number(e.target.value) }))}
+          className="w-36"
+        />
+      </div>
+      <div className="flex gap-2">
+        <Button type="submit">{editingWeek ? 'Update' : 'Save'}</Button>
+        {editingWeek && (
+          <Button variant="outline" onClick={() => { setEditingWeek(null); setForm({ week: 1, tower }); }}>
+            Cancel
+          </Button>
+        )}
+      </div>
+    </form>
+  </CardContent>
+</Card>
 
+
+          {/* Week-wise Table */}
           <Card>
             <CardHeader><CardTitle>Week-wise Table ({months[month-1]} {year})</CardTitle></CardHeader>
             <CardContent>
@@ -216,7 +276,11 @@ export default function ManpowerPage() {
                         <TableCell>W{w}</TableCell>
                         <TableCell>{fmt(p?.planned)}</TableCell>
                         <TableCell>{fmt(a?.actual)}</TableCell>
-                        <TableCell><Button size="sm" variant="ghost" onClick={()=>handleEdit(w)}><Pencil className="w-4 h-4 text-green-600"/></Button></TableCell>
+                        <TableCell>
+                          <Button size="sm" variant="ghost" onClick={()=>handleEdit(w)}>
+                            <Pencil className="w-4 h-4 text-green-600"/>
+                          </Button>
+                        </TableCell>
                       </TableRow>
                     )
                   })}
@@ -239,24 +303,25 @@ export default function ManpowerPage() {
         </>
       ) : (
         <>
+          {/* Yearly Chart */}
           <Card className="mb-6">
             <CardHeader><CardTitle>Yearly Planned vs Actual ({year}, {tower})</CardTitle></CardHeader>
             <CardContent className="h-96">
              <ResponsiveContainer width="100%" height="100%">
-  <BarChart data={yearlyChartData} margin={{top:20, right:30, left:0, bottom:5}}>
-    <CartesianGrid strokeDasharray="3 3"/>
-    <XAxis dataKey="month"/>
-    <YAxis/>
-    <Tooltip formatter={(value:number, name:string) => [`${value.toFixed(2)}`, `Average ${name} per Week`]} />
-    <Legend/>
-    <Bar dataKey="planned" fill="#8884d8"/>
-    <Bar dataKey="actual" fill="#82ca9d"/>
-  </BarChart>
-</ResponsiveContainer>
-
+              <BarChart data={yearlyChartData} margin={{top:20, right:30, left:0, bottom:5}}>
+                <CartesianGrid strokeDasharray="3 3"/>
+                <XAxis dataKey="month"/>
+                <YAxis/>
+                <Tooltip formatter={(value:number, name:string) => [`${value.toFixed(2)}`, `Average ${name} per Week`]} />
+                <Legend/>
+                <Bar dataKey="planned" fill="#8884d8"/>
+                <Bar dataKey="actual" fill="#82ca9d"/>
+              </BarChart>
+             </ResponsiveContainer>
             </CardContent>
           </Card>
 
+          {/* Yearly Table */}
           <Card>
             <CardHeader><CardTitle>Yearly Summary Table ({year}, {tower})</CardTitle></CardHeader>
             <CardContent>
@@ -286,6 +351,23 @@ export default function ManpowerPage() {
           </Card>
         </>
       )}
+
+      {/* Duplicate Week Modal */}
+      <Dialog open={!!duplicateWeek} onOpenChange={()=>setDuplicateWeek(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Record Already Exists</DialogTitle>
+          </DialogHeader>
+          <div className="py-2 text-gray-700">
+            A record for <strong>Week {duplicateWeek}</strong>, {months[month-1]} {year}, {tower} already exists.
+          </div>
+          <DialogFooter className="flex gap-2">
+            <Button onClick={()=>duplicateWeek!==null && handleEdit(duplicateWeek)}>Edit Record</Button>
+            <Button variant="outline" onClick={()=>setDuplicateWeek(null)}>Cancel</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
     </div>
   )
 }

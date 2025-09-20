@@ -45,10 +45,15 @@ export default function HindrancesPage() {
   const [deleteId, setDeleteId] = useState<number | null>(null)
   const [modalContent, setModalContent] = useState<string | null>(null)
 
+  // Pagination states
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState<number | "all">(10)
+
   useEffect(() => {
     fetchData()
     setEditingId(null)
     setForm({})
+    setCurrentPage(1) // reset page on tab change
   }, [activeTab])
 
   const fetchData = async () => {
@@ -160,6 +165,13 @@ export default function HindrancesPage() {
   const columns = rows.length > 0
     ? Object.keys(rows[0]).filter((col) => col !== "id" && col !== "tower" && col !== "created_at")
     : []
+
+  // Pagination calculations
+  const totalPages = pageSize === "all" ? 1 : Math.ceil(rows.length / pageSize)
+  const paginatedRows =
+    pageSize === "all"
+      ? rows
+      : rows.slice((currentPage - 1) * pageSize, currentPage * pageSize)
 
   return (
     <div className="p-6">
@@ -292,32 +304,19 @@ export default function HindrancesPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map((row) => (
+              {paginatedRows.map((row) => (
                 <TableRow key={row.id}>
                   {columns.map((col) => {
                     const value = (row as any)[col]
                     return (
                       <TableCell
                         key={col}
-                        className="truncate max-w-[150px] cursor-pointer relative"
+                        className="truncate max-w-[150px] cursor-pointer"
                         title={value}
                         onClick={() => setModalContent(String(value))}
                       >
-                        <span
-                          className="inline-block max-w-full overflow-hidden text-ellipsis whitespace-nowrap"
-                          ref={(el) => {
-                            if (el) {
-                              const htmlEl = el as HTMLElement
-                              const showEllipsis = htmlEl.scrollWidth > htmlEl.clientWidth
-                              const indicator = htmlEl.querySelector(".overflow-indicator") as HTMLElement | null
-                              if (indicator) indicator.style.display = showEllipsis ? "inline" : "none"
-                            }
-                          }}
-                        >
+                        <span className="inline-block max-w-full overflow-hidden text-ellipsis whitespace-nowrap">
                           {value}
-                        </span>
-                        <span className="overflow-indicator absolute right-1 top-1/2 -translate-y-1/2 text-gray-400 font-bold select-none">
-                          …
                         </span>
                       </TableCell>
                     )
@@ -332,8 +331,57 @@ export default function HindrancesPage() {
                   </TableCell>
                 </TableRow>
               ))}
+              {paginatedRows.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={columns.length + 1} className="text-center py-4 text-gray-500">
+                    No records found.
+                  </TableCell>
+                </TableRow>
+              )}
             </TableBody>
           </Table>
+
+          {/* Pagination Controls */}
+          <div className="flex items-center justify-between mt-4">
+            <div className="flex items-center gap-2">
+              <label className="text-sm">Rows per page:</label>
+              <select
+                value={pageSize}
+                onChange={(e) =>
+                  setPageSize(e.target.value === "all" ? "all" : Number(e.target.value))
+                }
+                className="border rounded px-2 py-1 text-sm"
+              >
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+                <option value="all">All</option>
+              </select>
+            </div>
+            {pageSize !== "all" && (
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                >
+                  Previous
+                </Button>
+                <span className="text-sm">
+                  Page {currentPage} of {totalPages}
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                >
+                  Next
+                </Button>
+              </div>
+            )}
+          </div>
         </CardContent>
       </Card>
 
@@ -357,7 +405,7 @@ export default function HindrancesPage() {
           <DialogHeader>
             <DialogTitle>Full Content</DialogTitle>
           </DialogHeader>
-          <p>{modalContent}</p>
+          <p className="whitespace-pre-wrap break-words">{modalContent}</p>
           <DialogFooter className="flex justify-end">
             <Button onClick={() => setModalContent(null)}>Close</Button>
           </DialogFooter>

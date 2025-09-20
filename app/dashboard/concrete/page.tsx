@@ -18,6 +18,13 @@ import {
   Legend,
   CartesianGrid,
 } from "recharts"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter
+} from "@/components/ui/dialog"
 
 type PlanRow = { id?: number; year: number; month: number; week: number; tower: string; planned: number }
 type ActualRow = { id?: number; year: number; month: number; week: number; tower: string; actual: number }
@@ -33,10 +40,11 @@ export default function ConcretePage() {
   const [planRows, setPlanRows] = useState<PlanRow[]>([])
   const [actualRows, setActualRows] = useState<ActualRow[]>([])
   const [allTotals, setAllTotals] = useState<{month:number, planned:number, actual:number, monthlyPlanned:number, monthlyActual:number}[]>([])
-  const [form, setForm] = useState<{week:number, planned?:number, actual?:number, tower:string}>({week:1, tower:"T1"})
+  const [form, setForm] = useState<{week:number, planned?:number, actual?:number}>({week:1})
   const [editingWeek, setEditingWeek] = useState<number|null>(null)
   const [viewMode, setViewMode] = useState<"monthly"|"yearly">("monthly")
   const [loading, setLoading] = useState(false)
+  const [duplicateModal, setDuplicateModal] = useState<{week:number, type:"plan"|"actual"}|null>(null)
 
   const fetchData = async () => {
     setLoading(true)
@@ -105,10 +113,40 @@ export default function ConcretePage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
+      // Check for duplicates if adding new record
+      if(!editingWeek){
+        if(form.planned !== undefined){
+          const { data: existingPlan } = await supabase.from("concrete_plan")
+            .select("*")
+            .eq("year", year)
+            .eq("month", month)
+            .eq("week", form.week)
+            .eq("tower", tower)
+            .limit(1)
+          if(existingPlan && existingPlan.length>0){
+            setDuplicateModal({week: form.week, type:"plan"})
+            return
+          }
+        }
+        if(form.actual !== undefined){
+          const { data: existingActual } = await supabase.from("concrete_actual")
+            .select("*")
+            .eq("year", year)
+            .eq("month", month)
+            .eq("week", form.week)
+            .eq("tower", tower)
+            .limit(1)
+          if(existingActual && existingActual.length>0){
+            setDuplicateModal({week: form.week, type:"actual"})
+            return
+          }
+        }
+      }
+
       if(form.planned !== undefined){
         const { error } = await supabase.from("concrete_plan")
           .upsert(
-            { year, month, week: form.week, tower: form.tower, planned: form.planned },
+            { year, month, week: form.week, tower, planned: form.planned },
             { onConflict: "year,month,week,tower" }
           )
         if(error) throw error
@@ -116,13 +154,13 @@ export default function ConcretePage() {
       if(form.actual !== undefined){
         const { error } = await supabase.from("concrete_actual")
           .upsert(
-            { year, month, week: form.week, tower: form.tower, actual: form.actual },
+            { year, month, week: form.week, tower, actual: form.actual },
             { onConflict: "year,month,week,tower" }
           )
         if(error) throw error
       }
       toast.success(editingWeek ? "Updated successfully" : "Saved successfully")
-      setForm({week:1, tower})
+      setForm({week:1})
       setEditingWeek(null)
       fetchData()
     } catch(err){
@@ -134,7 +172,7 @@ export default function ConcretePage() {
   const handleEdit = (week:number) => {
     const plan = planRows.find(r=>r.week===week)
     const act = actualRows.find(r=>r.week===week)
-    setForm({week, tower, planned:plan?.planned, actual:act?.actual})
+    setForm({week, planned:plan?.planned, actual:act?.actual})
     setEditingWeek(week)
   }
 
@@ -193,12 +231,6 @@ export default function ConcretePage() {
                   <Input type="number" min={1} max={5} value={form.week} disabled={!!editingWeek} onChange={e=>setForm(f=>({...f, week:Number(e.target.value)}))} className="w-24"/>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">Tower</label>
-                  <select className="border rounded px-2 py-1 w-32" value={form.tower} onChange={e=>setForm(f=>({...f, tower:e.target.value}))} disabled={!!editingWeek}>
-                    {towers.map(t=><option key={t} value={t}>{t}</option>)}
-                  </select>
-                </div>
-                <div>
                   <label className="block text-sm font-medium mb-1">Planned</label>
                   <Input type="number" step="0.001" value={form.planned??''} onChange={e=>setForm(f=>({...f, planned:Number(e.target.value)}))} className="w-36"/>
                 </div>
@@ -208,12 +240,13 @@ export default function ConcretePage() {
                 </div>
                 <div className="flex gap-2">
                   <Button type="submit">{editingWeek ? 'Update' : 'Save'}</Button>
-                  {editingWeek && <Button variant="outline" onClick={()=>{setEditingWeek(null); setForm({week:1, tower})}}>Cancel</Button>}
+                  {editingWeek && <Button variant="outline" onClick={()=>{setEditingWeek(null); setForm({week:1})}}>Cancel</Button>}
                 </div>
               </form>
             </CardContent>
           </Card>
 
+          {/* Week-wise table */}
           <Card>
             <CardHeader>
               <CardTitle>{months[month-1]} - {year} ({tower}) Week-wise</CardTitle>
@@ -314,6 +347,25 @@ export default function ConcretePage() {
           </Card>
         </>
       )}
+
+      {/* Duplicate Modal */}
+      {duplicateModal && (
+        <Dialog open={true} onOpenChange={() => setDuplicateModal(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Record Already Exists</DialogTitle>
+            </DialogHeader>
+            <div className="py-2 text-gray-700">
+              A record for <strong>Week {duplicateModal.week}</strong> of <strong>{months[month-1]} {year}</strong> (Tower <strong>{tower}</strong>, {duplicateModal.type}) already exists.
+            </div>
+            <DialogFooter className="flex gap-2">
+              <Button onClick={() => { handleEdit(duplicateModal.week); setDuplicateModal(null) }}>Edit Record</Button>
+              <Button variant="outline" onClick={() => setDuplicateModal(null)}>Cancel</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
     </div>
   )
 }
