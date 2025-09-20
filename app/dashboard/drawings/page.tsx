@@ -18,7 +18,6 @@ interface Record {
 export default function DrawingsPage() {
   const [records, setRecords] = useState<Record[]>([])
   const [formData, setFormData] = useState({
-    category: "Drawing",
     description: "",
     record_date: "",
   })
@@ -27,6 +26,8 @@ export default function DrawingsPage() {
     year: "",
     month: "",
   })
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [recordToDelete, setRecordToDelete] = useState<Record | null>(null)
 
   // Fetch records
   const fetchData = async () => {
@@ -47,61 +48,77 @@ export default function DrawingsPage() {
   const nextSrNo = records.length > 0 ? records[records.length - 1].sr_no + 1 : 1
 
   // Handle input
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value })
   }
 
   // Handle submit (add / update)
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-
     if (editing) {
-      // Update existing record
       const { error } = await supabase
         .from("project_records")
         .update({
-          category: formData.category,
+          category: "Drawings",
           description: formData.description,
           record_date: formData.record_date || null,
         })
         .eq("sr_no", editing.sr_no)
-
       if (error) console.error("Error updating record:", error)
       else {
         setEditing(null)
-        setFormData({ category: "Drawing", description: "", record_date: "" })
+        setFormData({ description: "", record_date: "" })
         fetchData()
       }
     } else {
-      // Insert new record
       const { error } = await supabase.from("project_records").insert([
         {
           sr_no: nextSrNo,
-          category: formData.category,
+          category: "Drawings",
           description: formData.description,
           record_date: formData.record_date || null,
         },
       ])
-
       if (error) console.error("Error inserting record:", error)
       else {
-        setFormData({ category: "Drawing", description: "", record_date: "" })
+        setFormData({ description: "", record_date: "" })
         fetchData()
       }
     }
   }
 
-  // Handle edit click
+  // Handle edit
   const handleEdit = (rec: Record) => {
     setEditing(rec)
     setFormData({
-      category: rec.category,
       description: rec.description,
       record_date: rec.record_date || "",
     })
   }
 
-  // Handle search filter
+  // Open delete modal
+  const handleDeleteClick = (rec: Record) => {
+    setRecordToDelete(rec)
+    setShowDeleteModal(true)
+  }
+
+  // Confirm delete
+  const confirmDelete = async () => {
+    if (!recordToDelete) return
+    const { error } = await supabase.from("project_records").delete().eq("sr_no", recordToDelete.sr_no)
+    if (error) console.error("Error deleting record:", error)
+    setShowDeleteModal(false)
+    setRecordToDelete(null)
+    fetchData()
+  }
+
+  // Cancel delete
+  const cancelDelete = () => {
+    setShowDeleteModal(false)
+    setRecordToDelete(null)
+  }
+
+  // Filtered records
   const filteredRecords = records.filter((rec) => {
     if (!rec.record_date) return false
     const date = new Date(rec.record_date)
@@ -112,7 +129,7 @@ export default function DrawingsPage() {
 
   return (
     <div className="p-6">
-      <h1 className="text-2xl font-bold mb-6">Project Records</h1>
+      <h1 className="text-2xl font-bold mb-6">Drawings Records</h1>
 
       {/* Form Section */}
       <div className="bg-white border rounded-lg shadow p-6 mb-6">
@@ -121,33 +138,6 @@ export default function DrawingsPage() {
         </h2>
 
         <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Sr No */}
-          <div>
-            <label className="block font-medium mb-1">Sr No</label>
-            <input
-              type="text"
-              value={editing ? editing.sr_no : nextSrNo}
-              disabled
-              className="w-full border rounded p-2 bg-gray-100"
-            />
-          </div>
-
-          {/* Category */}
-          <div>
-            <label className="block font-medium mb-1">Category</label>
-            <select
-              name="category"
-              value={formData.category}
-              onChange={handleChange}
-              className="w-full border rounded p-2"
-              required
-            >
-              <option value="Drawing">Drawing</option>
-              <option value="Approval">Approval</option>
-            </select>
-          </div>
-
-          {/* Date */}
           <div>
             <label className="block font-medium mb-1">Date</label>
             <input
@@ -159,7 +149,6 @@ export default function DrawingsPage() {
             />
           </div>
 
-          {/* Description */}
           <div className="md:col-span-2">
             <label className="block font-medium mb-1">Description</label>
             <textarea
@@ -172,7 +161,6 @@ export default function DrawingsPage() {
             />
           </div>
 
-          {/* Save Button */}
           <div className="md:col-span-2">
             <button
               type="submit"
@@ -211,26 +199,79 @@ export default function DrawingsPage() {
         </div>
       </div>
 
-      {/* Records Display */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {filteredRecords.map((rec) => (
-          <div key={rec.sr_no} className="border rounded-lg p-4 shadow bg-white">
-            <h2 className="font-semibold text-lg">
-              {rec.category} #{rec.sr_no}
-            </h2>
-            <p className="text-sm text-gray-600">
-              Date: {rec.record_date ? new Date(rec.record_date).toLocaleDateString() : "N/A"}
-            </p>
-            <p className="mt-2">{rec.description}</p>
-            <button
-              onClick={() => handleEdit(rec)}
-              className="mt-3 text-sm bg-gray-800 text-white px-3 py-1 rounded hover:bg-gray-700"
-            >
-              Edit
-            </button>
-          </div>
-        ))}
+      {/* Records Table */}
+      <div className="overflow-x-auto">
+        <table className="min-w-full bg-white border rounded-lg">
+          <thead className="bg-gray-100">
+            <tr>
+              <th className="text-left p-3 border-b">Sr No</th>
+              <th className="text-left p-3 border-b">Category</th>
+              <th className="text-left p-3 border-b">Date</th>
+              <th className="text-left p-3 border-b">Description</th>
+              <th className="text-center p-3 border-b">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredRecords.map((rec) => (
+              <tr key={rec.sr_no} className="hover:bg-gray-50">
+                <td className="p-3 border-b">{rec.sr_no}</td>
+                <td className="p-3 border-b">{rec.category}</td>
+                <td className="p-3 border-b">
+                  {rec.record_date ? new Date(rec.record_date).toLocaleDateString() : "N/A"}
+                </td>
+                <td className="p-3 border-b">{rec.description}</td>
+                <td className="p-3 border-b text-center">
+                  <button
+                    onClick={() => handleEdit(rec)}
+                    className="bg-blue-600 text-white px-3 py-1 rounded mr-2 hover:bg-blue-500"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => handleDeleteClick(rec)}
+                    className="bg-red-600 text-white px-3 py-1 rounded hover:bg-red-500"
+                  >
+                    Delete
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {filteredRecords.length === 0 && (
+              <tr>
+                <td colSpan={5} className="text-center p-4 text-gray-500">
+                  No records found.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteModal && recordToDelete && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-lg p-6 w-96">
+            <h2 className="text-lg font-semibold mb-4">Confirm Delete</h2>
+            <p className="mb-6">
+              Are you sure you want to delete record #{recordToDelete.sr_no}?
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={cancelDelete}
+                className="px-4 py-2 rounded bg-gray-300 hover:bg-gray-400"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDelete}
+                className="px-4 py-2 rounded bg-red-600 text-white hover:bg-red-500"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
