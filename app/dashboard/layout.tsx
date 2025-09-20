@@ -15,6 +15,7 @@ import {
   GaugeIcon,
   ChevronLeft,
   ChevronRight,
+    LayersIcon,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
@@ -27,7 +28,10 @@ const navItems = [
   { href: "/dashboard/planvsactual", label: "Plan vs Actual", icon: <LogsIcon className="h-5 w-5 stroke-cyan-700" /> },
   { href: "/dashboard/manpower", label: "Manpower", icon: <GaugeIcon className="h-5 w-5 stroke-fuchsia-500" /> },
   { href: "/dashboard/cashflow", label: "Cash Flow", icon: <ReceiptIndianRupeeIcon className="h-5 w-5 stroke-green-500" /> },
+  { href: "/dashboard/steel-stock-report", label: "Steel Stock Report", icon: <LayersIcon className="h-5 w-5 stroke-yellow-500" /> },
+   { href: "/dashboard/tower-finish-dates", label: "Tower Finish Dates", icon: <LayersIcon className="h-5 w-5 stroke-red-500" /> }, // <-- Added route
 ]
+
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
@@ -63,7 +67,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 href={item.href}
                 className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all ${
                   isActive
-                    ? "bg-blue-600 text-white shadow-sm"
+                    ? "bg-black text-white shadow-sm"
                     : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
                 }`}
               >
