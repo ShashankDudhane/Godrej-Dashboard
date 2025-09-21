@@ -1,13 +1,20 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useCallback, useMemo } from "react"
 import { createClient } from "@supabase/supabase-js"
-import { Pencil, Trash2 } from "lucide-react"
+import { Pencil, Trash2, Save, X, ChevronLeft, ChevronRight, AlertTriangle, Loader2 } from "lucide-react"
 import { toast } from "sonner"
-import { Button } from "@/components/ui/button"
 import { differenceInDays, format } from "date-fns"
 
+// --- Shadcn/ui Components ---
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@/components/ui/table"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+
 // --- Supabase Client ---
+// NOTE: Assuming NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are correctly available in the environment.
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -17,8 +24,8 @@ const supabase = createClient(
 interface TowerFinishRecord {
   id: number
   tower: string
-  planned_finish: string // YYYY-MM-DD
-  projected_finish: string // YYYY-MM-DD
+  planned_finish: string
+  projected_finish: string
   finish_variance_days: number
 }
 
@@ -29,22 +36,23 @@ interface FormData {
 }
 
 // --- Utility Functions ---
-const calculateVariance = (planned: string, projected: string) => {
+const calculateVariance = (planned: string, projected: string): number => {
   try {
     const plannedDate = new Date(planned)
     const projectedDate = new Date(projected)
+    // Use date-fns differenceInDays for reliable calculation
     return differenceInDays(projectedDate, plannedDate)
   } catch {
     return 0
   }
 }
 
-const formatDate = (dateString: string) => dateString ? format(new Date(dateString), "dd-MM-yyyy") : "N/A"
+const formatDate = (dateString: string) => dateString ? format(new Date(dateString), "dd MMM yyyy") : "N/A"
 
 const getVarianceClass = (variance: number) => {
-  if (variance > 0) return "text-red-600 font-bold"
-  if (variance < 0) return "text-green-600 font-bold"
-  return "text-gray-600"
+  if (variance > 0) return "bg-red-100 text-red-700 font-bold" // Behind Schedule
+  if (variance < 0) return "bg-green-100 text-green-700 font-bold" // Ahead of Schedule
+  return "bg-blue-100 text-blue-700 font-bold" // On Schedule (Zero variance)
 }
 
 // --- Component ---
@@ -58,13 +66,28 @@ export default function FinishDatesPage() {
   const [editing, setEditing] = useState<TowerFinishRecord | null>(null)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [recordToDelete, setRecordToDelete] = useState<TowerFinishRecord | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  // --- Pagination ---
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
+  
+  const totalPages = useMemo(() => Math.ceil(records.length / pageSize), [records.length, pageSize])
+  
+  const paginatedRecords = useMemo(() => {
+    const start = (currentPage - 1) * pageSize
+    const end = currentPage * pageSize
+    return records.slice(start, end)
+  }, [records, currentPage, pageSize])
 
   // --- Fetch Records ---
   const fetchRecords = useCallback(async () => {
+    setIsLoading(true)
     const { data, error } = await supabase
       .from("tower_finish_dates")
       .select("*")
-      .order("id", { ascending: true })
+      .order("tower", { ascending: true }) // Order by tower name
 
     if (error) {
       toast.error("Failed to fetch tower finish records")
@@ -76,11 +99,17 @@ export default function FinishDatesPage() {
       }))
       setRecords(processed)
     }
+    setIsLoading(false)
   }, [])
 
   useEffect(() => {
     fetchRecords()
   }, [fetchRecords])
+  
+  // Reset pagination when data changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [records])
 
   // --- Form Handling ---
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -108,33 +137,41 @@ export default function FinishDatesPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setIsSubmitting(true)
+    
     if (!formData.tower || !formData.planned_finish || !formData.projected_finish) {
       toast.error("All fields are required.")
+      setIsSubmitting(false)
       return
     }
 
     const payload = { ...formData }
 
-    if (editing) {
-      const { error } = await supabase
-        .from("tower_finish_dates")
-        .update(payload)
-        .eq("id", editing.id)
+    try {
+        if (editing) {
+            const { error } = await supabase
+                .from("tower_finish_dates")
+                .update(payload)
+                .eq("id", editing.id)
 
-      if (error) toast.error(`Failed to update record #${editing.id}`)
-      else {
-        toast.success(`Record #${editing.id} updated`)
+            if (error) throw error
+            
+            toast.success(`Record for ${editing.tower} updated successfully`)
+        } else {
+            const { error } = await supabase.from("tower_finish_dates").insert([payload])
+            
+            if (error) throw error
+            
+            toast.success(`New record for ${formData.tower} saved successfully`)
+        }
+        
         resetForm()
         fetchRecords()
-      }
-    } else {
-      const { error } = await supabase.from("tower_finish_dates").insert([payload])
-      if (error) toast.error("Failed to insert new record")
-      else {
-        toast.success("New record saved")
-        resetForm()
-        fetchRecords()
-      }
+    } catch (error: any) {
+        console.error("Supabase Error:", error);
+        toast.error(error.message || `Failed to ${editing ? 'update' : 'save'} record`);
+    } finally {
+        setIsSubmitting(false)
     }
   }
 
@@ -146,15 +183,27 @@ export default function FinishDatesPage() {
 
   const confirmDelete = async () => {
     if (!recordToDelete) return
-    const { error } = await supabase
-      .from("tower_finish_dates")
-      .delete()
-      .eq("id", recordToDelete.id)
-    if (error) toast.error("Failed to delete record")
-    else toast.success(`Record #${recordToDelete.id} deleted`)
+    
     setShowDeleteModal(false)
-    setRecordToDelete(null)
-    fetchRecords()
+    setIsSubmitting(true)
+
+    try {
+        const { error } = await supabase
+            .from("tower_finish_dates")
+            .delete()
+            .eq("id", recordToDelete.id)
+            
+        if (error) throw error
+        
+        toast.success(`Record for ${recordToDelete.tower} deleted`)
+    } catch (error: any) {
+        console.error("Supabase Error:", error);
+        toast.error(error.message || "Failed to delete record")
+    } finally {
+        setRecordToDelete(null)
+        setIsSubmitting(false)
+        fetchRecords()
+    }
   }
 
   const cancelDelete = () => {
@@ -164,114 +213,204 @@ export default function FinishDatesPage() {
 
   // --- Render ---
   return (
-    <div className="p-6">
-      <h1 className="text-2xl font-bold mb-6 ">Planned & Projected Finish Dates (Towerwise)</h1>
+    <div className="p-4 sm:p-6 md:p-8 bg-gray-50 min-h-screen font-sans space-y-8">
+      
+      {/* Header */}
+      <header className="pb-4 border-b border-gray-300">
+        <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight">
+          Tower Finish Dates Tracker 🏗️
+        </h1>
+        <p className="text-sm text-gray-500 mt-1">
+          Monitor the project schedule by comparing planned vs. projected finish dates for each tower.
+        </p>
+      </header>
 
-      {/* Form */}
-      <div className="bg-white border rounded-lg shadow p-6 mb-8">
-        <h2 className="text-xl font-semibold mb-4 text-blue-700">
-          {editing ? `Edit Record for ${editing.tower}` : "Add New Finish Date Record"}
-        </h2>
-        <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
-          <div>
-            <label className="block font-medium mb-1">Tower</label>
-            <input
-              type="text"
-              name="tower"
-              value={formData.tower}
-              onChange={handleChange}
-              className="w-full border rounded p-2"
-              placeholder="e.g., T1"
-              required
-            />
-          </div>
-          <div>
-            <label className="block font-medium mb-1">Planned Finish Date</label>
-            <input
-              type="date"
-              name="planned_finish"
-              value={formData.planned_finish}
-              onChange={handleChange}
-              className="w-full border rounded p-2"
-              required
-            />
-          </div>
-          <div>
-            <label className="block font-medium mb-1">Projected Finish Date</label>
-            <input
-              type="date"
-              name="projected_finish"
-              value={formData.projected_finish}
-              onChange={handleChange}
-              className="w-full border rounded p-2"
-              required
-            />
-          </div>
-          <div className="flex items-end space-x-2 md:col-span-2">
-            <button
-              type="submit"
-              className="w-full bg-black text-white font-semibold py-2 px-4 rounded hover:bg-gray-800 transition duration-150"
-            >
-              {editing ? "Update Record" : "Save New Record"}
-            </button>
-            {editing && <Button type="button" variant="outline" onClick={resetForm}>Cancel</Button>}
-          </div>
-        </form>
-      </div>
-
-      {/* Table */}
-      <div className="overflow-x-auto mb-4">
-        <table className="min-w-full bg-white border rounded-lg shadow-xl">
-          <thead className="bg-red-100">
-            <tr className="text-sm">
-              <th className="text-left p-3 border-b border-r">Tower</th>
-              <th className="text-center p-3 border-b border-r">Planned Finish</th>
-              <th className="text-center p-3 border-b border-r">Projected Finish</th>
-              <th className="text-center p-3 border-b border-r">Variance (days)</th>
-              <th className="text-center p-3 border-b">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {records.map(rec => (
-              <tr key={rec.id} className="hover:bg-gray-50 text-sm">
-                <td className="p-3 border-b border-r font-semibold">{rec.tower}</td>
-                <td className="p-3 border-b border-r text-center">{formatDate(rec.planned_finish)}</td>
-                <td className="p-3 border-b border-r text-center">{formatDate(rec.projected_finish)}</td>
-                <td className={`p-3 border-b border-r text-center ${getVarianceClass(rec.finish_variance_days)}`}>
-                  {rec.finish_variance_days}
-                </td>
-                <td className="p-3 border-b text-center flex justify-center space-x-2">
-                  <Button size="icon" variant="outline" onClick={() => handleEdit(rec)} title="Edit">
-                    <Pencil className="w-4 h-4" />
-                  </Button>
-                  <Button size="icon" variant="destructive" onClick={() => handleDeleteClick(rec)} title="Delete">
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
-                </td>
-              </tr>
-            ))}
-            {records.length === 0 && (
-              <tr>
-                <td colSpan={5} className="text-center p-4 text-gray-500">No records found.</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Delete Modal */}
-      {showDeleteModal && recordToDelete && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-lg p-6 w-96">
-            <h2 className="text-lg font-semibold mb-4">Confirm Delete</h2>
-            <p className="mb-6">Are you sure you want to delete record <strong>{recordToDelete.tower}</strong> (ID: #{recordToDelete.id})?</p>
-            <div className="flex justify-end gap-3">
-              <Button variant="outline" onClick={cancelDelete}>Cancel</Button>
-              <Button variant="destructive" onClick={confirmDelete}>Delete</Button>
+      {/* Form Card */}
+      <Card className="shadow-lg border-t-4 border-t-blue-600">
+        <CardHeader>
+          <CardTitle className="text-xl font-semibold text-gray-800">
+            {editing ? `Edit Dates for ${editing.tower}` : "Add New Finish Date Record"}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-4 gap-6 items-end">
+            <div>
+              <label className="block text-sm font-medium mb-1 text-gray-700">Tower/Block</label>
+              <Input
+                type="text"
+                name="tower"
+                value={formData.tower}
+                onChange={handleChange}
+                placeholder="e.g., T1, Block A"
+                required
+                disabled={isSubmitting}
+                className="border-gray-300 focus:border-blue-500"
+              />
             </div>
+            <div>
+              <label className="block text-sm font-medium mb-1 text-gray-700">Planned Finish Date</label>
+              <Input
+                type="date"
+                name="planned_finish"
+                value={formData.planned_finish}
+                onChange={handleChange}
+                required
+                disabled={isSubmitting}
+                className="border-gray-300"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1 text-gray-700">Projected Finish Date</label>
+              <Input
+                type="date"
+                name="projected_finish"
+                value={formData.projected_finish}
+                onChange={handleChange}
+                required
+                disabled={isSubmitting}
+                className="border-gray-300"
+              />
+            </div>
+            <div className="flex space-x-2 w-full">
+              <Button
+                type="submit"
+                className="flex-1 bg-blue-600 hover:bg-blue-700 shadow-md"
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : editing ? <><Pencil className="w-4 h-4 mr-2" /> Update</> : <><Save className="w-4 h-4 mr-2" /> Save</>}
+              </Button>
+              {editing && (
+                <Button 
+                    type="button" 
+                    variant="outline" 
+                    onClick={resetForm}
+                    disabled={isSubmitting}
+                    className="text-gray-600 border-gray-300 hover:bg-gray-100"
+                >
+                    <X className="w-4 h-4" />
+                </Button>
+              )}
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+
+      {/* Table Card */}
+      <Card className="shadow-lg">
+        <CardHeader>
+          <CardTitle className="text-xl font-semibold text-gray-800">Project Timeline Summary</CardTitle>
+          {isLoading && (
+              <p className="text-blue-600 flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Fetching data...</p>
+          )}
+        </CardHeader>
+        
+        <CardContent className="pt-4">
+          <div className="overflow-x-auto">
+            <Table className="min-w-full">
+              <TableHeader>
+                <TableRow className="bg-gray-100 hover:bg-gray-100 text-sm">
+                  <TableHead className="text-left font-bold text-gray-700 w-[20%]">Tower/Block</TableHead>
+                  <TableHead className="text-center font-bold text-gray-700 w-[25%]">Planned Finish</TableHead>
+                  <TableHead className="text-center font-bold text-gray-700 w-[25%]">Projected Finish</TableHead>
+                  <TableHead className="text-center font-bold text-gray-700 w-[20%]">Variance (days)</TableHead>
+                  <TableHead className="text-center font-bold text-gray-700 w-[10%]">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {paginatedRecords.map(rec => (
+                  <TableRow key={rec.id} className="odd:bg-white even:bg-gray-50 hover:bg-blue-50 transition-colors text-sm">
+                    <TableCell className="font-semibold text-gray-800">{rec.tower}</TableCell>
+                    <TableCell className="text-center text-gray-700">{formatDate(rec.planned_finish)}</TableCell>
+                    <TableCell className="text-center text-gray-700">{formatDate(rec.projected_finish)}</TableCell>
+                    <TableCell className={`p-3 border-b border-r text-center ${getVarianceClass(rec.finish_variance_days)}`}>
+                        {rec.finish_variance_days}
+                        {rec.finish_variance_days > 0 && <AlertTriangle className="inline w-3 h-3 ml-1 text-red-700" />}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <div className="flex justify-center space-x-2">
+                        <Button size="icon" variant="ghost" onClick={() => handleEdit(rec)} title="Edit" className="text-blue-600 hover:bg-blue-100">
+                          <Pencil className="w-4 h-4" />
+                        </Button>
+                        <Button size="icon" variant="ghost" onClick={() => handleDeleteClick(rec)} title="Delete" className="text-red-600 hover:bg-red-100">
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                
+                {paginatedRecords.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center p-6 text-gray-500">No records found. Start by adding a new record above.</TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
           </div>
-        </div>
-      )}
+
+          {/* Pagination Controls */}
+          {records.length > 0 && (
+            <div className="flex justify-between items-center mt-4 pt-4 border-t border-gray-200">
+              <div className="flex items-center gap-2 text-sm text-gray-700">
+                <span>Rows per page:</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => { setPageSize(Number(e.target.value)); setCurrentPage(1) }}
+                  className="border border-gray-300 rounded px-2 py-1 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  {[5, 10, 20, 50].map(n => <option key={n} value={n}>{n}</option>)}
+                </select>
+              </div>
+              <div className="flex items-center gap-4 text-sm text-gray-700">
+                <span>Page {currentPage} of {totalPages}</span>
+                <Button 
+                    size="sm" 
+                    variant="outline" 
+                    disabled={currentPage === 1} 
+                    onClick={() => setCurrentPage(p => p - 1)}
+                    className="flex items-center"
+                >
+                    <ChevronLeft className="w-4 h-4 mr-1" /> Previous
+                </Button>
+                <Button 
+                    size="sm" 
+                    variant="outline" 
+                    disabled={currentPage === totalPages} 
+                    onClick={() => setCurrentPage(p => p + 1)}
+                    className="flex items-center"
+                >
+                    Next <ChevronRight className="w-4 h-4 ml-1" />
+                </Button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Delete Modal (Dialog Component) */}
+      <Dialog open={showDeleteModal} onOpenChange={setShowDeleteModal}>
+        <DialogContent className="sm:max-w-[425px] rounded-lg shadow-xl">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-red-600 flex items-center">
+                <Trash2 className="w-5 h-5 mr-2" /> Confirm Deletion
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4 text-gray-700">
+            <p className="mb-2">
+              Are you sure you want to delete the record for **{recordToDelete?.tower}** (ID: #{recordToDelete?.id})?
+            </p>
+            <p className="text-sm text-gray-500">This action cannot be undone.</p>
+          </div>
+          <DialogFooter className="flex justify-end gap-3">
+            <Button variant="outline" onClick={cancelDelete} disabled={isSubmitting} className="text-gray-600 border-gray-300 hover:bg-gray-100">
+                Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmDelete} disabled={isSubmitting}>
+              {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Trash2 className="w-4 h-4 mr-2" />} Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
