@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useMemo } from "react"
 import { createClient } from "@supabase/supabase-js"
 import { Pencil, Trash2, Save, X, ChevronLeft, ChevronRight, AlertTriangle, Loader2 } from "lucide-react"
 import { toast } from "sonner"
-import { differenceInDays, format } from "date-fns"
+import { format } from "date-fns"
 
 // --- Shadcn/ui Components ---
 import { Button } from "@/components/ui/button"
@@ -26,29 +26,23 @@ interface TowerFinishRecord {
   tower: string
   planned_finish: string
   projected_finish: string
-  finish_variance_days: number
+  // Changed to number | '' for form input flexibility
+  finish_variance_days: number | '' 
 }
 
 interface FormData {
   tower: string
   planned_finish: string
   projected_finish: string
+  // New field in form data
+  finish_variance_days: number | '' 
 }
 
-// --- Utility Functions ---
-const calculateVariance = (planned: string, projected: string): number => {
-  try {
-    const plannedDate = new Date(planned)
-    const projectedDate = new Date(projected)
-    // Use date-fns differenceInDays for reliable calculation
-    return differenceInDays(projectedDate, plannedDate)
-  } catch {
-    return 0
-  }
-}
-
+// --- Utility Functions (Removed calculateVariance) ---
+// Kept formatDate
 const formatDate = (dateString: string) => dateString ? format(new Date(dateString), "dd MMM yyyy") : "N/A"
 
+// Updated to strictly handle number for class generation
 const getVarianceClass = (variance: number) => {
   if (variance > 0) return "bg-red-100 text-red-700 font-bold" // Behind Schedule
   if (variance < 0) return "bg-green-100 text-green-700 font-bold" // Ahead of Schedule
@@ -62,6 +56,7 @@ export default function FinishDatesPage() {
     tower: "",
     planned_finish: format(new Date(), "yyyy-MM-dd"),
     projected_finish: format(new Date(), "yyyy-MM-dd"),
+    finish_variance_days: 0, // Initial default value
   })
   const [editing, setEditing] = useState<TowerFinishRecord | null>(null)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
@@ -93,11 +88,8 @@ export default function FinishDatesPage() {
       toast.error("Failed to fetch tower finish records")
       console.error(error)
     } else {
-      const processed: TowerFinishRecord[] = (data || []).map(rec => ({
-        ...rec,
-        finish_variance_days: calculateVariance(rec.planned_finish, rec.projected_finish),
-      }))
-      setRecords(processed)
+      // Data is directly set, no client-side calculation needed
+      setRecords(data as TowerFinishRecord[] || [])
     }
     setIsLoading(false)
   }, [])
@@ -114,7 +106,14 @@ export default function FinishDatesPage() {
   // --- Form Handling ---
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target
-    setFormData(prev => ({ ...prev, [name]: value }))
+    
+    // Special handling for the variance field to convert to a number
+    if (name === 'finish_variance_days') {
+      const numValue = value === '' ? '' : parseInt(value, 10);
+      setFormData(prev => ({ ...prev, [name]: numValue }));
+    } else {
+      setFormData(prev => ({ ...prev, [name]: value }))
+    }
   }
 
   const handleEdit = (rec: TowerFinishRecord) => {
@@ -123,6 +122,8 @@ export default function FinishDatesPage() {
       tower: rec.tower,
       planned_finish: rec.planned_finish,
       projected_finish: rec.projected_finish,
+      // Load the existing variance value
+      finish_variance_days: rec.finish_variance_days, 
     })
   }
 
@@ -132,6 +133,7 @@ export default function FinishDatesPage() {
       tower: "",
       planned_finish: format(new Date(), "yyyy-MM-dd"),
       projected_finish: format(new Date(), "yyyy-MM-dd"),
+      finish_variance_days: 0, // Reset variance as well
     })
   }
 
@@ -139,13 +141,20 @@ export default function FinishDatesPage() {
     e.preventDefault()
     setIsSubmitting(true)
     
-    if (!formData.tower || !formData.planned_finish || !formData.projected_finish) {
+    // Check for empty fields, including variance
+    if (!formData.tower || !formData.planned_finish || !formData.projected_finish || formData.finish_variance_days === '') {
       toast.error("All fields are required.")
       setIsSubmitting(false)
       return
     }
 
-    const payload = { ...formData }
+    const payload = { 
+      tower: formData.tower,
+      planned_finish: formData.planned_finish,
+      projected_finish: formData.projected_finish,
+      // Ensure it is stored as a number
+      finish_variance_days: Number(formData.finish_variance_days), 
+    }
 
     try {
         if (editing) {
@@ -221,7 +230,7 @@ export default function FinishDatesPage() {
           Tower Finish Dates Tracker 🏗️
         </h1>
         <p className="text-sm text-gray-500 mt-1">
-          Monitor the project schedule by comparing planned vs. projected finish dates for each tower.
+          Monitor the project schedule by comparing planned vs. projected finish dates and manually entering the variance.
         </p>
       </header>
 
@@ -271,14 +280,23 @@ export default function FinishDatesPage() {
                 className="border-gray-300"
               />
             </div>
-            <div className="flex space-x-2 w-full">
-              <Button
-                type="submit"
-                className="flex-1 bg-blue-600 hover:bg-blue-700 shadow-md"
+            {/* NEW FIELD: Manual Variance Input */}
+            <div>
+              <label className="block text-sm font-medium mb-1 text-gray-700">Variance (days)</label>
+              <Input
+                type="number" // Use number type for direct variance input
+                name="finish_variance_days"
+                // Convert to string for the input field to handle the empty string state
+                value={formData.finish_variance_days === '' ? '' : String(formData.finish_variance_days)}
+                onChange={handleChange}
+                placeholder="0 (e.g., -5 for 5 days early, 10 for 10 days late)"
+                required
                 disabled={isSubmitting}
-              >
-                {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : editing ? <><Pencil className="w-4 h-4 mr-2" /> Update</> : <><Save className="w-4 h-4 mr-2" /> Save</>}
-              </Button>
+                className="border-gray-300"
+              />
+            </div>
+
+            <div className="md:col-span-4 flex justify-end space-x-2 w-full"> {/* Adjust layout for 4 columns and buttons */}
               {editing && (
                 <Button 
                     type="button" 
@@ -287,9 +305,16 @@ export default function FinishDatesPage() {
                     disabled={isSubmitting}
                     className="text-gray-600 border-gray-300 hover:bg-gray-100"
                 >
-                    <X className="w-4 h-4" />
+                    <X className="w-4 h-4 mr-1" /> Cancel Edit
                 </Button>
               )}
+              <Button
+                type="submit"
+                className="bg-blue-600 hover:bg-blue-700 shadow-md min-w-[120px]"
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : editing ? <><Pencil className="w-4 h-4 mr-2" /> Update</> : <><Save className="w-4 h-4 mr-2" /> Save</>}
+              </Button>
             </div>
           </form>
         </CardContent>
@@ -322,9 +347,10 @@ export default function FinishDatesPage() {
                     <TableCell className="font-semibold text-gray-800">{rec.tower}</TableCell>
                     <TableCell className="text-center text-gray-700">{formatDate(rec.planned_finish)}</TableCell>
                     <TableCell className="text-center text-gray-700">{formatDate(rec.projected_finish)}</TableCell>
-                    <TableCell className={`p-3 border-b border-r text-center ${getVarianceClass(rec.finish_variance_days)}`}>
+                    {/* Variance is displayed directly from the record, ensuring it's treated as a number for styling */}
+                    <TableCell className={`p-3 border-b border-r text-center ${getVarianceClass(Number(rec.finish_variance_days))}`}>
                         {rec.finish_variance_days}
-                        {rec.finish_variance_days > 0 && <AlertTriangle className="inline w-3 h-3 ml-1 text-red-700" />}
+                        {Number(rec.finish_variance_days) > 0 && <AlertTriangle className="inline w-3 h-3 ml-1 text-red-700" />}
                     </TableCell>
                     <TableCell className="text-center">
                       <div className="flex justify-center space-x-2">
